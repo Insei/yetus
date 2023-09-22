@@ -139,7 +139,6 @@ docker buildx build \
   "${PLATARRAY[@]}" \
   "${LABELS[@]}" \
   --tag "${DOCKER_REPO}-base:${DOCKER_TAG}" \
-  --push \
   precommit/src/main/shell/test-patch-docker || exit 1
 
 opencontainerslabels "full"
@@ -152,5 +151,4 @@ docker buildx build \
   --tag "${DOCKER_REPO}:${DOCKER_TAG}" \
   --build-arg DOCKER_TAG="${DOCKER_TAG}" \
   --build-arg DOCKER_REPO="${DOCKER_REPO}" \
-  --push \
   .

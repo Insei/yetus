@@ -30,7 +30,7 @@ GITLAB_API_URL="https://gitlab.com/api/v4"
 
 # user/repo -- this might get set by robots
 GITLAB_REPO=${GITLAB_REPO:-""}
-GITLAB_REPO_ENC=""
+GITLAB_PROJECT_ID=""
 
 # user settings
 GITLAB_TOKEN=""
@@ -68,9 +68,14 @@ function gitlab_parse_args
         delete_parameter "${i}"
         GITLAB_REPO=${i#*=}
       ;;
+      --gitlab-project-id=*)
+        delete_parameter "${i}"
+        GITLAB_PROJECT_ID=${i#*=}
+      ;;
       --gitlab-url=*)
         delete_parameter "${i}"
         GITLAB_BASE_URL=${i#*=}
+        GITLAB_API_URL="${GITLAB_BASE_URL}/api/v4"
       ;;
       --gitlab-use-emoji-vote)
         delete_parameter "${i}"
@@ -85,9 +90,6 @@ function gitlab_initialize
   if [[ -z "${GITLAB_REPO}" ]]; then
     GITLAB_REPO=${GITLAB_REPO_DEFAULT:-}
   fi
-
-  # convert the repo into a URL encoded one.  Need this for lots of things.
-  GITLAB_REPO_ENC=${GITLAB_REPO/\//%2F}
 
   if [[ "${PROJECT_NAME}" == "unknown" ]]; then
     PROJECT_NAME=${GITLAB_REPO##*/}
@@ -236,26 +238,30 @@ function gitlab_locate_mr_patch
 
   echo "Patch from GITLAB MR #${input} is being downloaded at $(date) from"
   echo "${PATCHURL}"
-
-  # the actual patch file
-  if ! "${CURL}" --silent --fail \
-          --output "${patchout}" \
-          --location \
-          -H "${gitlabauth}" \
-         "${PATCHURL}.patch"; then
-    yetus_debug "gitlab_locate_patch: not a gitlab merge request."
-    return 1
-  fi
-
-  # the actual patch file
-  if ! "${CURL}" --silent --fail \
-          --output "${diffout}" \
-          --location \
-          -H "${gitlabauth}" \
-         "${PATCHURL}.diff"; then
-    yetus_debug "gitlab_locate_patch: not a gitlab merge request."
-    return 1
-  fi
+#  # the actual patch file
+#  if ! "${CURL}" --silent --fail \
+#          --output "${patchout}" \
+#          --location \
+#          -H "${gitlabauth}" \
+#         "${PATCHURL}.patch"; then
+#    yetus_debug "gitlab_locate_patch: not a gitlab merge request."
+#    return 1
+#  fi
+#
+#  # the actual patch file
+#  if ! "${CURL}" --silent --fail \
+#          --output "${diffout}" \
+#          --location \
+#          -H "${gitlabauth}" \
+#         "${PATCHURL}.diff"; then
+#    yetus_debug "gitlab_locate_patch: not a gitlab merge request."
+#    return 1
+#  fi
+  echo "BUGFIX: can't load private merge request patches, do local patch with git diff"
+  echo "git diff ${CI_MERGE_REQUEST_DIFF_BASE_SHA} ${CI_COMMIT_SHA} -p --output=${patchout}"
+  git -C "${source_dir}" diff $CI_MERGE_REQUEST_DIFF_BASE_SHA $CI_COMMIT_SHA -p --output=$patchout
+  echo "git diff ${CI_MERGE_REQUEST_DIFF_BASE_SHA} ${CI_COMMIT_SHA} -s --output=${diffout}"
+  git -C "${source_dir}" diff $CI_MERGE_REQUEST_DIFF_BASE_SHA $CI_COMMIT_SHA -s --output=$diffout
 
   GITLAB_ISSUE=${input}
 
@@ -291,14 +297,16 @@ function gitlab_locate_sha_patch
   else
     gitlabauth="X-ignore-me: fake" # pragma: allowlist secret
   fi
-
+  search_mr_url="${GITLAB_API_URL}/projects/${GITLAB_PROJECT_ID}/repository/commits/${GITLAB_COMMITSHA}/merge_requests"
+  echo "Trying to found MR by COMMIT SHA #${GITLAB_COMMITSHA} at $(date) by merge_requests API endpoint"
+  echo "${search_mr_url}"
    # Let's merge the MR JSON for later use
   if ! "${CURL}" --fail \
           -H "${gitlabauth}" \
           --output "${PATCH_DIR}/gitlab-search.json" \
           --location \
           --silent \
-         "${GITLAB_API_URL}/projects/${GITLAB_REPO_ENC}/repository/commits/${GITLAB_COMMITSHA}/merge_requests"; then
+         "${search_mr_url}"; then
     return 1
   fi
 
@@ -342,7 +350,7 @@ function gitlab_locate_patch
     yetus_debug "gitlab_locate_patch: offline, skipping"
     return 1
   fi
-
+  echo "Locate patch by ${input} via gitlab"
   case "${input}" in
       GLSHA:*)
         gitlab_locate_sha_patch "${input}" "${patchout}" "${diffout}"
@@ -397,7 +405,7 @@ function gitlab_write_comment
        -d @"${restfile}" \
        --silent --location \
        --output "${PATCH_DIR}/gitlab-comment-out.json" \
-         "${GITLAB_API_URL}/projects/${GITLAB_REPO_ENC}/merge_requests/${GITLAB_ISSUE}/notes" \
+         "${GITLAB_API_URL}/projects/${GITLAB_PROJECT_ID}/merge_requests/${GITLAB_ISSUE}/notes" \
         >/dev/null
 
   retval=$?
